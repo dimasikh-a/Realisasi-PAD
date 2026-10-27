@@ -1,0 +1,141 @@
+// Prisma Schema for Sistem Informasi Laporan Realisasi PAD Bapenda
+// Database: PostgreSQL
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// 1. Master Hierarki Bagan Akun / Uraian Penerimaan PAD
+model UraianNode {
+  id        String       @id
+  kode      String       @db.VarChar(50)
+  nama      String       @db.VarChar(255)
+  parentId  String?      @map("parent_id")
+  parent    UraianNode?  @relation("UraianHierarchy", fields: [parentId], references: [id], onDelete: Restrict)
+  children  UraianNode[] @relation("UraianHierarchy")
+  level     Int          @default(0)
+  isLeaf    Boolean      @default(false) @map("is_leaf")
+  urutan    Int          @default(1)
+
+  createdAt DateTime     @default(now()) @map("created_at")
+  updatedAt DateTime     @updatedAt @map("updated_at")
+
+  // Relasi
+  targets      TargetAnggaran[]
+  transaksi    TransaksiPenerimaan[]
+
+  @@index([parentId])
+  @@index([isLeaf])
+  @@map("uraian_node")
+}
+
+// 2. Target Anggaran APBD Tahunan per Pos Penerimaan
+model TargetAnggaran {
+  id        String     @id @default(uuid())
+  uraianId  String     @map("uraian_id")
+  uraian    UraianNode @relation(fields: [uraianId], references: [id], onDelete: Cascade)
+  tahun     Int        @default(2026)
+  jumlah    Decimal    @default(0) @db.Decimal(20, 2)
+
+  createdAt DateTime   @default(now()) @map("created_at")
+  updatedAt DateTime   @updatedAt @map("updated_at")
+
+  @@unique([uraianId, tahun])
+  @@index([tahun])
+  @@map("target_anggaran")
+}
+
+// 3. Transaksi Realisasi Penerimaan Harian (Pokok & Piutang)
+model TransaksiPenerimaan {
+  id         String     @id @default(uuid())
+  uraianId   String     @map("uraian_id")
+  uraian     UraianNode @relation(fields: [uraianId], references: [id], onDelete: Restrict)
+  tanggal    String     @db.VarChar(10) // Format: YYYY-MM-DD
+  pokok      Decimal    @default(0) @db.Decimal(20, 2)
+  piutang    Decimal    @default(0) @db.Decimal(20, 2)
+  total      Decimal    @default(0) @db.Decimal(20, 2)
+  keterangan String?    @db.VarChar(500)
+
+  createdAt  DateTime   @default(now()) @map("created_at")
+  updatedAt  DateTime   @updatedAt @map("updated_at")
+
+  @@index([tanggal])
+  @@index([uraianId])
+  @@map("transaksi_penerimaan")
+}
+
+// 4. Laporan Rekapitulasi Realisasi PAD & Penguncian Periode
+model Laporan {
+  id             String          @id @default(uuid())
+  nomorLaporan   String          @unique @map("nomor_laporan") @db.VarChar(100)
+  tanggalLaporan String          @map("tanggal_laporan") @db.VarChar(10) // Format: YYYY-MM-DD
+  periodeMulai   String          @map("periode_mulai") @db.VarChar(10)   // 2026-01-01
+  periodeSelesai String          @map("periode_selesai") @db.VarChar(10) // YYYY-MM-DD
+  status         String          @default("draft") @db.VarChar(20)      // "draft" | "final"
+  totalPad       Decimal         @default(0) @map("total_pad") @db.Decimal(20, 2)
+  catatan        String?         @db.Text
+  finalizedBy    String?         @map("finalized_by") @db.VarChar(100)
+  finalizedAt    DateTime?       @map("finalized_at")
+
+  createdAt      DateTime        @default(now()) @map("created_at")
+  updatedAt      DateTime        @updatedAt @map("updated_at")
+
+  details        LaporanDetail[]
+
+  @@index([tanggalLaporan])
+  @@index([status])
+  @@map("laporan")
+}
+
+// 5. Snapshot Detail Angka Laporan per Pos
+model LaporanDetail {
+  id              String   @id @default(uuid())
+  laporanId       String   @map("laporan_id")
+  laporan         Laporan  @relation(fields: [laporanId], references: [id], onDelete: Cascade)
+  uraianId        String   @map("uraian_id")
+  target          Decimal  @default(0) @db.Decimal(20, 2)
+  sdBulanLalu     Decimal  @default(0) @map("sd_bulan_lalu") @db.Decimal(20, 2)
+  sdKemarin       Decimal  @default(0) @map("sd_kemarin") @db.Decimal(20, 2)
+  hariIni         Decimal  @default(0) @map("hari_ini") @db.Decimal(20, 2)
+  jumlahSdHariIni Decimal  @default(0) @map("jumlah_sd_hari_ini") @db.Decimal(20, 2)
+  totalRealisasi  Decimal  @default(0) @map("total_realisasi") @db.Decimal(20, 2)
+  sisaTarget      Decimal  @default(0) @map("sisa_target") @db.Decimal(20, 2)
+  persenCapaian   Decimal  @default(0) @map("persen_capaian") @db.Decimal(10, 4)
+  keterangan      String?  @db.VarChar(500)
+
+  @@unique([laporanId, uraianId])
+  @@index([laporanId])
+  @@map("laporan_detail")
+}
+
+// 6. Audit Trail untuk Akuntabilitas dan Pengawasan Keuangan
+model AuditLog {
+  id         String   @id @default(uuid())
+  timestamp  DateTime @default(now())
+  user       String   @db.VarChar(100)
+  action     String   @db.VarChar(50) // INPUT_TRANSAKSI, HAPUS_TRANSAKSI, FINALISASI, REVISI, etc.
+  laporanId  String?  @map("laporan_id") @db.VarChar(100)
+  keterangan String   @db.Text
+  metadata   String?  @db.Text
+
+  @@index([timestamp])
+  @@index([action])
+  @@map("audit_log")
+}
+
+// 7. Pengguna Sistem (Operator / Administrator Bapenda)
+model User {
+  id        String   @id @default(uuid())
+  username  String   @unique @db.VarChar(50)
+  email     String?  @unique @db.VarChar(100)
+  name      String   @db.VarChar(100)
+  role      String   @default("operator") @db.VarChar(20) // "admin" | "operator"
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("users")
+}

@@ -1,0 +1,6 @@
+{
+  "name": "Sistem Laporan Realisasi PAD & Pajak Daerah",
+  "description": "Sistem Informasi Laporan Realisasi Pendapatan Asli Daerah (PAD) dan Pajak Daerah dengan perhitungan berjenjang, validasi penguncian, dan export resmi.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
